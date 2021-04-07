@@ -1,4 +1,6 @@
 pyyaml
+schedule
+shortuuid
 ua-parser
 user-agents
 vt-py

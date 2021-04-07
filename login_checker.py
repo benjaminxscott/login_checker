@@ -2,62 +2,73 @@
 
 import csv
 import argparse
-import typing
 
-from time import sleep
-from collections import Counter
 from http import HTTPStatus
-from user_agents import parse
 
-def is_bot(user_agent):
+from user_agents import parse as parse_useragent
+import schedule
+from loginevents import UserAccount, LoginSource, LoginClient, LoginEvents
+
+def emit_summary(app_logins):
+    print('--- STATS ---')
+    print(f"Total Successful Logins: {app_logins.total_successful_logins}")
+    print(f"Total Failed Logins: {app_logins.total_failed_logins}")
+    print(f"Total Suspicious Events: {len(app_logins.suspicious_events)}")
+
+    print('--- EVENTS ---')
+    for event in app_logins.suspicious_events.values():
+        print(f"Event ID: {event.event_id} (confidence:{event.confidence}) {event.reason} on {event.account.user_id} for {event.login_source.ip_address}")
+
+    print('--- SUSPICIOUS IPS ---')
+
+    for loginsource in app_logins.login_sources.values():
+        if loginsource.possible_ato:
+            print(f"{loginsource.ip_address} may be conducting ATO, associated with {len(loginsource.successful_logins)} accounts")
+
+        if loginsource.possible_bruting:
+            print(f"{loginsource.ip_address} may be brute-forcing, associated with {len(loginsource.successful_logins)} accounts")
+
+    print('--- SUSPICIOUS USERAGENTS ---')
+    for loginclient in app_logins.login_clients.values():
+        if loginclient.possible_ato:
+            print(f"{loginclient.ua_digest} may be conducting ATO, associated with {len(loginclient.successful_logins)} accounts - useragent {loginclient.user_agent}")
+
+
+def check_useragent(user_agent:str) -> bool:
+    ua = parse_useragent(user_agent)
     headless_browsers = ['Headless', 'Phantom', 'Selenium']
-    return any([item.lower() in user_agent.browser.family.lower() for item in headless_browsers]) or 'Other' in user_agent.os.family
+    return any([item.lower() in ua.browser.family.lower() for item in headless_browsers]) or 'Other' in ua.os.family
 
-def successful_login(status_code):
+def is_successful_login(status_code:str) -> bool:
     return int(status_code) in (HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.ACCEPTED)
 
-class UserAccount:
-    def __init__(self, user_id:str):
-        self.user_id = user_id
-        self.failed_logins = Counter()
-        self.possible_ato = False
-        self.possible_bruting = False
-        self.possible_bruting = False
+def check_login(account:UserAccount, login_source:LoginSource, login_client:LoginClient, was_successful:bool) -> None:
 
-# TODO - use this object when using plain IPs
-class LoginIP:
-    def __init__(self, ip_address:str):
-        self.ip_address = ip_address
-        self.failed_logins = Counter()
-        self.successful_logins = set()
-        self.disposition = None
-        self.possible_bruting = False
-        self.possible_ato = False
+    if was_successful:
+        if login_source.possible_ato:
+            app_logins.add_suspicious_event(account, login_source,
+                reason = "ATO - known bad srcIP", confidence = 90)
 
-class LoginEvents:
-    def __init__(self):
-        self.user_accounts = {}
-        self.login_ips = {}
+        if check_useragent(user_agent):
+            login_source.possible_ato = True
+            login_client.possible_ato = True
+            app_logins.add_suspicious_event(account, login_source,
+                reason = "ATO - suspicious useragent", confidence = 80)
 
-    def get_account(self, user_id:str) -> UserAccount:
-        account = self.user_accounts.get(user_id)
-        if not account:
-            account = UserAccount(user_id)
-            print(account)
-            self.user_accounts[user_id] = account
-        return account
+        if len(login_source.successful_logins) >= 3:
+            app_logins.add_suspicious_event(account, login_source,
+                reason = "ATO - srcIP associated with three or more accounts", confidence = 60)
 
-    def get_ip(self, ip_address:str) -> LoginIP:
-        login_ip = self.login_ips.get(ip_address)
-        if not login_ip:
-            login_ip = LoginIP(ip_address)
-            self.login_ips[ip_address] = login_ip
-        return login_ip
+        if len(login_source.successful_logins) >= 3:
+            app_logins.add_suspicious_event(account, login_source,
+                reason = "ATO - srcIP associated with three or more useragents", confidence = 30)
+    else:
+        if sum(login_source.failed_logins.values()) > 10:
+            login_source.possible_bruting = True
 
-    def add_failed_login(self, account:UserAccount, login_ip:LoginIP):
-        self.user_accounts.get(account.user_id).failed_logins.update({login_ip})
-        self.login_ips.get(login_ip.ip_address).failed_logins.update({account})
-
+        if sum(account.failed_logins.values()) > 3 and login_source.possible_bruting:
+            app_logins.add_suspicious_event(account, login_source,
+                reason = "Bruting - many failed login attempts", confidence = 50)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -65,46 +76,32 @@ if __name__ == '__main__':
     parser.add_argument('infile', nargs='?',type=argparse.FileType('r'),
         help='filename of CSV file to process', default = "traffic.csv")
 
-    # FUTURE - flags for type of events to emit, default all
-
     args = parser.parse_args()
 
-    loginevents = LoginEvents()
-    unique_logins = {}
+    app_logins = LoginEvents()
 
     with args.infile as csvfile:
         reader = csv.DictReader(csvfile)
-        # TODO - logins from many IPs to a single user, eventually getting 20x (ATO)
-        # TODO - logins from same IP or UA to many accounts
+
+        # TODO - lauren: several failed logins from same IP , various UAs, then success
+            # - keep track of prior failed logins, on success check the failed ones to see if they have suspicious characteristics
+            # check at login-source level, "IP associated with many UAs" (low conf since could be library / home)
 
         for row in reader:
-            account = loginevents.get_account(row.get('userid'))
-            login_ip = loginevents.get_ip(row.get('ip'))
+            account = app_logins.get_account(row.get('userid'))
+            login_source = app_logins.get_login_source(row.get('ip'))
+            user_agent = row.get('useragent')
+            login_client = app_logins.get_login_client(user_agent)
+            was_successful = is_successful_login(row.get('status_code'))
 
-            if successful_login(row.get('status_code')):
-                login_ip.successful_logins.add(account.user_id)
-                if is_bot(parse(row.get('useragent'))):
-                    account.possible_ato = True
-                    login_ip.possible_ato = True
-            else:
-                loginevents.add_failed_login(account, login_ip)
-                if sum(account.failed_logins.values()) > 3:
-                    account.possible_bruting = True
-                if sum(login_ip.failed_logins.values()) > 3:
-                    login_ip.possible_bruting = True
+            if all(account, login_source, user_agent, login_client, was_successful):
+                app_logins.add_login(account, login_source, login_client, was_successful)
+                check_login(account, login_source, login_client, was_successful)
 
-    # emit summary
-    for account in loginevents.user_accounts.values():
-        if account.possible_ato:
-            print (f"POSSIBLE_ATO for {account.user_id}")
-        if account.possible_bruting:
-            print (f"POSSIBLE_BRUTING for {account.user_id} with {sum(account.failed_logins.values())} attempts from {len(account.failed_logins)} distinct IPs")
-
-    for login_ip in loginevents.login_ips.values():
-        print(sum(login_ip.failed_logins.values()))
-        if login_ip.possible_ato:
-            print (f"POSSIBLE_ATO for {login_ip.ip_address} with {len(login_ip.successful_logins)} affected accounts")
-        if login_ip.possible_bruting:
-            print (f"POSSIBLE_BRUTING for {login_ip.ip_address} with {sum(login_ip.failed_logins.values())} attempts to {len(login_ip.failed_logins)} distinct accounts")
+    emit_summary(app_logins)
+    schedule.every(15).seconds.do(emit_summary, app_logins = app_logins)
+    # TODO - read a row per second rather than all at once
+    while True:
+        schedule.run_pending()
 
 # FUTURE: integrate w/ VT to notify on bad IPs https://github.com/VirusTotal/vt-py (env-file for apitoken)

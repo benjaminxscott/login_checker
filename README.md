@@ -1,6 +1,11 @@
 # datadog_interview
 Given a traffic.csv containing 45 seconds worth of login activity from a SaaS-based application, surface login anomalies from potential bots/account takeovers
 
+## In Practice
+- use DB for LoginEvents, foreign keys into tables for loginSource and user accounts
+- integrate with mitigation measures that force pass reset to clear these flags or add captcha / soft-block IPs and hard-block bogus user_agents
+- webapp
+
 ## Install
 
 > docker build -t login_checker .
