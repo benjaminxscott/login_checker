@@ -3,7 +3,7 @@ Given a traffic.csv containing 45 seconds worth of login activity from a SaaS-ba
 
 ## Possible Enhancements
 - Integrate w/ [VirusTotal](https://github.com/VirusTotal/vt-py) to provide context on source IPs (using an env-file for apitoken) 
-- Use a real database for LoginEvents, with foreign keys into tables for clients and user accounts
+- Use a database for LoginEvents, with foreign keys into tables for clients and user accounts
 - Connect to ticketing system / mitigation automation (i.e. requiring captcha on bruting, forcing password reset on ATO)
 - Setup interactive web application with API
 
