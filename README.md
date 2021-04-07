@@ -1,10 +1,12 @@
 # datadog_interview
 Given a traffic.csv containing 45 seconds worth of login activity from a SaaS-based application, surface login anomalies from potential bots/account takeovers
 
-## In Practice
-- use DB for LoginEvents, foreign keys into tables for loginSource and user accounts
-- integrate with mitigation measures that force pass reset to clear these flags or add captcha / soft-block IPs and hard-block bogus user_agents
-- webapp
+## Possible Enhancements
+- Integrate w/ VT to provide context on source IPs https://github.com/VirusTotal/vt-py (env-file for apitoken)
+- Use a real database for LoginEvents, with foreign keys into tables for clients and user accounts
+- Connect to ticketing system / mitigation automation (i.e. requiring captcha on bruting, forcing password reset on ATO)
+- Setup interactive web application with API
+
 
 ## Install
 
