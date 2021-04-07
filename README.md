@@ -1,4 +1,4 @@
-# datadog_interview
+# login_checker
 Given a traffic.csv containing 45 seconds worth of login activity from a SaaS-based application, generate alerts on login anomalies from potential bots/account takeovers
 
 ## Possible Enhancements
