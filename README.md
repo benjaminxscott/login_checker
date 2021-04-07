@@ -14,19 +14,30 @@ Given a traffic.csv containing 45 seconds worth of login activity from a SaaS-ba
 
 ## Usage
 
-Provide a file in CSV format named `traffic.csv` with header fields for
+Under the `input` directory, add a file in CSV format named `traffic.csv` with header fields for
 - userid
 - event_type
 - status_code
 - ip
 - useragent
 
-Run the script to see a summary of login anomalies
-> docker run login_checker:latest
+
+Run the script to see a summary of login anomalies from `traffic.csv`
+> docker run login_checker
+
+Provide a filename as the first argument to read from a different file
+
+> docker run login_checker [your_filename]
+
+Add files to `./input` to reference them within the container at the `./input` volume, without having to rebuild the container
+
+> docker run \
+--mount type=bind,source=$(pwd)/input,target=/usr/src/app/input,readonly \
+login_checker input/traffic.csv
 
 In order to read each line once per second, emitting a summary every 15 seconds
 
-> docker run login_checker:latest --daemon --stream
+> docker run login_checker --daemon --stream
 
 Input `Ctrl+C` or the equivalent escape code to stop the container process once you're finished
 

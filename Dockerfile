@@ -7,4 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+VOLUME ["/usr/src/app/input"]
+
 ENTRYPOINT [ "python", "./login_checker.py"]

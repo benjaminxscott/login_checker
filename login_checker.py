@@ -10,6 +10,10 @@ from user_agents import parse as parse_useragent
 import schedule
 from loginevents import UserAccount, LoginSource, UserAgent, LoginEvents, Alert
 
+# TODO - doc infile flag
+# - setup docker volume for folder so it can be loaded
+# - add to readme --mount source="$(pwd)"/input, target=/usr/src/app/input,readonly
+
 def emit_summary(app_logins):
     print('--- STATS ---')
     print(f"Total Successful Logins: {app_logins.total_successful_logins}")
