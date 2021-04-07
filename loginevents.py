@@ -17,7 +17,6 @@ class UserAgent:
         self.ua_string = ua_string
         self.ua_digest = hashlib.sha1(bytes(ua_string, 'utf-8')).hexdigest()
         self.failed_logins = Counter()
-        self.related_login_sources = set()
         self.successful_logins = set()
         self.possible_ato = False
         self.possible_bruting = False
@@ -26,11 +25,11 @@ class LoginSource:
     def __init__(self, ip_address:str):
         self.ip_address = ip_address
         self.failed_logins = Counter()
+        self.associated_useragents = set()
         self.successful_logins = set()
         self.disposition = None
         self.possible_bruting = False
         self.possible_ato = False
-
 
 class Alert:
     def __init__(self, alert_type, severity = 0):
@@ -55,7 +54,7 @@ class LoginEvents:
         self.total_failed_logins = 0
         self.user_accounts = {}
         self.login_sources = {}
-        self.login_clients = {}
+        self.useragents = {}
         self.suspicious_events = {}
 
     def get_account(self, user_id:str) -> UserAccount:
@@ -72,25 +71,26 @@ class LoginEvents:
             self.login_sources[ip_address] = login_source
         return login_source
 
-    def get_login_client(self, ua_string:str) -> UserAgent:
+    def get_useragent(self, ua_string:str) -> UserAgent:
         ua_digest = hashlib.sha1(bytes(ua_string, 'utf-8')).hexdigest()
-        login_client = self.login_clients.get(ua_digest)
-        if not login_client:
-            login_client = UserAgent(ua_string)
-            self.login_clients[ua_digest] = login_client
-        return login_client
+        useragent = self.useragents.get(ua_digest)
+        if not useragent:
+            useragent = UserAgent(ua_string)
+            self.useragents[ua_digest] = useragent
+        return useragent
 
-    def add_login(self, account:UserAccount, login_source:LoginSource, login_client:UserAgent, was_successful:bool = False) -> None:
+    def add_login(self, account:UserAccount, login_source:LoginSource, useragent:UserAgent, was_successful:bool = False) -> None:
+        login_source.associated_useragents.add(useragent.ua_digest)
+
         if was_successful:
             self.total_successful_logins += 1
-            self.login_sources.get(login_source.ip_address).successful_logins.add(account)
-            self.login_clients.get(login_client.ua_digest).successful_logins.add(account)
-            self.login_clients.get(login_client.ua_digest).related_login_sources.add(login_source)
+            login_source.successful_logins.add(account)
+            useragent.successful_logins.add(account)
         else:
             self.total_failed_logins += 1
-            self.user_accounts.get(account.user_id).failed_logins.update({login_source})
-            self.login_sources.get(login_source.ip_address).failed_logins.update({account})
-            self.login_clients.get(login_client.ua_digest).failed_logins.update({account})
+            account.failed_logins.update({login_source})
+            login_source.failed_logins.update({account})
+            useragent.failed_logins.update({account})
 
     def add_suspicious_event(self, account:UserAccount, login_source:LoginSource, alert_type:Alert, description:str = None, confidence:str = None) -> None:
         event = SuspiciousEvent(account, login_source, alert_type, description, confidence)
