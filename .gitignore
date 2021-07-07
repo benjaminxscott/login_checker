@@ -1,4 +1,4 @@
-traffic.csv
+*.csv
 input/*
 
 # Byte-compiled / optimized / DLL files
