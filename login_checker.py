@@ -15,6 +15,7 @@ from loginevents import UserAccount, LoginSource, UserAgent, LoginEvents, Alert
 # - add to readme --mount source="$(pwd)"/input, target=/usr/src/app/input,readonly
 
 def emit_summary(app_logins):
+    print('=' * 20)
     print('--- STATS ---')
     print(f"Total Successful Logins: {app_logins.total_successful_logins}")
     print(f"Total Failed Logins: {app_logins.total_failed_logins}")
@@ -51,12 +52,18 @@ def is_successful_login(status_code:str) -> bool:
 
 def check_login(account:UserAccount, login_source:LoginSource, useragent:UserAgent, was_successful:bool) -> None:
     if was_successful:
+        if account.previous_login_failures >= 2:
+            app_logins.add_suspicious_event(account, login_source,
+                alert_type = Alert(alert_type = 'ATO', severity = 80),
+                description = "successful login after three previous failed logins", confidence = 90)
+            account.previous_login_failures = 0
+
         if login_source.possible_ato or useragent.possible_ato:
             app_logins.add_suspicious_event(account, login_source,
                 alert_type = Alert(alert_type = 'ATO', severity = 80),
                 description = "known bad srcIP", confidence = 90)
 
-        if check_useragent(ua_string):
+        if check_useragent(useragent.ua_string):
             login_source.possible_ato = True
             useragent.possible_ato = True
             app_logins.add_suspicious_event(account, login_source,
@@ -89,6 +96,24 @@ def check_login(account:UserAccount, login_source:LoginSource, useragent:UserAge
                 alert_type = Alert(alert_type = 'Bruting', severity = 30),
                 description = "many failed login attempts", confidence = 50)
 
+def test_detection_logic():
+    account = UserAccount('ben')
+    login_source = LoginSource('8.8.4.4')
+    useragent = UserAgent('curl')
+
+    # TEST - test "two failures then success"
+    app_logins.add_login(account, login_source, useragent, False)
+    app_logins.add_login(account, login_source, useragent, False)
+    app_logins.add_login(account, login_source, useragent, True)
+    check_login(account, login_source, useragent, True)
+    try:
+        assert len(app_logins.suspicious_events) > 0
+    except AssertionError:
+        print("failed test of \"two failures then success\"")
+        exit(1)
+
+    return
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Process a given CSV of login events and output anomalies based on heuristics')
@@ -96,15 +121,25 @@ if __name__ == '__main__':
         help='filename of CSV file to process', default = "traffic.csv")
     parser.add_argument('--stream', '-s', action = 'store_true', help='Delay for 1s between reading each line of input file')
     parser.add_argument('--daemon', '-d', action = 'store_true', help='Output summary every 15s, instead of right away')
+    parser.add_argument('--test', action = 'store_true', help='Test that detections work properly')
 
-
+    # FUTURE - how about reading from file after it's appended to
     args = parser.parse_args()
     app_logins = LoginEvents()
 
+    if args.test:
+        test_detection_logic()
+        exit(0)
+
+    if args.daemon:
+        schedule.every(15).seconds.do(emit_summary, app_logins = app_logins)
+
+    # ingest lines from infile
     with args.infile as csvfile:
         reader = csv.DictReader(csvfile)
 
         for row in reader:
+            schedule.run_pending()
             account = app_logins.get_account(row.get('userid'))
             login_source = app_logins.get_login_source(row.get('ip'))
             ua_string = row.get('useragent')
@@ -120,8 +155,3 @@ if __name__ == '__main__':
 
     if not args.daemon:
         emit_summary(app_logins)
-    else:
-        emit_summary(app_logins)
-        schedule.every(15).seconds.do(emit_summary, app_logins = app_logins)
-        while True:
-            schedule.run_pending()

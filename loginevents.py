@@ -3,7 +3,7 @@ Helper library for login checker
 """
 
 import hashlib
-from collections import Counter
+from collections import Counter, deque
 
 import shortuuid
 
@@ -11,6 +11,10 @@ class UserAccount:
     def __init__(self, user_id:str):
         self.user_id = user_id
         self.failed_logins = Counter()
+        # TODO - keep queue of logins
+        # TODO - ? reset queue on successful login (may throw an ATO alert or not)
+        #self.previous_logins = deque()
+        self.previous_login_failures = 0
 
 class UserAgent:
     def __init__(self, ua_string:str):
@@ -88,9 +92,14 @@ class LoginEvents:
             useragent.successful_logins.add(account)
         else:
             self.total_failed_logins += 1
+            account.previous_login_failures += 1
+            # TODO - keep some state / consecutiveness
             account.failed_logins.update({login_source})
             login_source.failed_logins.update({account})
             useragent.failed_logins.update({account})
+
+        #TODO event = {login_source, useragent, was_successful}
+        #self.previous_logins.append(event)
 
     def add_suspicious_event(self, account:UserAccount, login_source:LoginSource, alert_type:Alert, description:str = None, confidence:str = None) -> None:
         event = SuspiciousEvent(account, login_source, alert_type, description, confidence)
